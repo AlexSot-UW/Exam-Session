@@ -8,6 +8,56 @@ internal static class Native
 {
     public delegate void WinEventProc(IntPtr hook, uint evt, IntPtr hwnd, int idObject, int idChild, uint thread, uint time);
     public delegate IntPtr LowLevelKeyboardProc(int code, IntPtr wParam, IntPtr lParam);
+    public delegate IntPtr LowLevelMouseProc(int code, IntPtr wParam, IntPtr lParam);
+    public delegate void TimerProc(IntPtr hwnd, uint msg, UIntPtr id, uint time);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Msg
+    {
+        public IntPtr Hwnd;
+        public uint Message;
+        public UIntPtr WParam;
+        public IntPtr LParam;
+        public uint Time;
+        public Point Pt;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MonitorInfo
+    {
+        public int Size;
+        public Rect Monitor;
+        public Rect Work;
+        public uint Flags;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Point
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Rect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+
+        public bool Contains(Point p) => p.X >= Left && p.X < Right && p.Y >= Top && p.Y < Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MsLlHookStruct
+    {
+        public Point Pt;
+        public uint MouseData;
+        public uint Flags;
+        public uint Time;
+        public UIntPtr ExtraInfo;
+    }
     private delegate bool EnumProc(IntPtr hwnd, IntPtr lParam);
 
     [StructLayout(LayoutKind.Sequential)]
@@ -23,6 +73,8 @@ internal static class Native
     public const uint EventSystemForeground = 0x0003;
     public const uint WinEventOutOfContext = 0x0000;
     public const int WhKeyboardLl = 13;
+    public const int WhMouseLl = 14;
+    private const uint GaRoot = 2;
     public const int WmKeyDown = 0x0100;
     public const int WmKeyUp = 0x0101;
     public const int WmSysKeyDown = 0x0104;
@@ -31,6 +83,8 @@ internal static class Native
     public const int VkShift = 0x10;
     public const int VkControl = 0x11;
     public const int VkEscape = 0x1B;
+    public const int VkLeft = 0x25;
+    public const int VkDown = 0x28;
     public const int VkLWin = 0x5B;
     public const int VkRWin = 0x5C;
     public const int VkLMenu = 0xA4;
@@ -63,7 +117,52 @@ internal static class Native
     public static extern bool UnhookWindowsHookEx(IntPtr hook);
 
     [DllImport("user32.dll")]
+    public static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc proc, IntPtr hmod, uint threadId);
+
+    [DllImport("user32.dll")]
     public static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr WindowFromPoint(Point point);
+
+    [DllImport("user32.dll")]
+    public static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
+
+    [DllImport("user32.dll")]
+    public static extern int GetMessage(out Msg msg, IntPtr hwnd, uint filterMin, uint filterMax);
+
+    [DllImport("user32.dll")]
+    public static extern bool TranslateMessage(ref Msg msg);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr DispatchMessage(ref Msg msg);
+
+    [DllImport("user32.dll")]
+    public static extern bool PostThreadMessage(uint threadId, uint msg, UIntPtr wParam, IntPtr lParam);
+
+    [DllImport("kernel32.dll")]
+    public static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+
+    [DllImport("user32.dll")]
+    public static extern UIntPtr SetTimer(IntPtr hwnd, UIntPtr id, uint elapse, TimerProc proc);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
+
+    [DllImport("user32.dll")]
+    public static extern bool GetCursorPos(out Point point);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetCursorPos(int x, int y);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
 
     [DllImport("user32.dll")]
     public static extern short GetAsyncKeyState(int vk);
@@ -194,6 +293,41 @@ internal static class Native
     {
         keybd_event(VkDummy, 0, 0, InjectedMarker);
         keybd_event(VkDummy, 0, KeyEventUp, InjectedMarker);
+    }
+
+    /// <summary>Replays Win+arrow (window snapping) after the real Win key was swallowed.</summary>
+    public static void SendWinArrow(int arrow)
+    {
+        keybd_event(VkLWin, 0, KeyEventExtended, InjectedMarker);
+        keybd_event((byte)arrow, 0, KeyEventExtended, InjectedMarker);
+        keybd_event((byte)arrow, 0, KeyEventExtended | KeyEventUp, InjectedMarker);
+        keybd_event(VkLWin, 0, KeyEventExtended | KeyEventUp, InjectedMarker);
+    }
+
+    /// <summary>The taskbar on every monitor.</summary>
+    public static List<IntPtr> Taskbars()
+    {
+        var result = new List<IntPtr>();
+        EnumWindows((hwnd, _) =>
+        {
+            if (ClassName(hwnd) is "Shell_TrayWnd" or "Shell_SecondaryTrayWnd") result.Add(hwnd);
+            return true;
+        }, IntPtr.Zero);
+        return result;
+    }
+
+    /// <summary>Bounds of the monitor a window is on.</summary>
+    public static Rect MonitorBounds(IntPtr hwnd)
+    {
+        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        GetMonitorInfo(MonitorFromWindow(hwnd, 2 /* MONITOR_DEFAULTTONEAREST */), ref info);
+        return info.Monitor;
+    }
+
+    public static string RootClassAt(Point point)
+    {
+        var hwnd = WindowFromPoint(point);
+        return hwnd == IntPtr.Zero ? "" : ClassName(GetAncestor(hwnd, GaRoot));
     }
 
     /// <summary>Brings a window forward while the user holds Alt, which Windows permits.</summary>

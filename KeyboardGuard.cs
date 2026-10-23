@@ -3,28 +3,31 @@ using System.Runtime.InteropServices;
 namespace ExamSession;
 
 /// <summary>
-/// Low-level keyboard hook that swallows the system window-switching shortcuts
-/// (Alt+Tab, Alt+Esc, Win+Tab, Ctrl+Esc, Ctrl+Shift+Esc) and optionally the Windows key.
-/// Ctrl+Alt+Del cannot be intercepted by any application.
+/// Low-level keyboard hook that swallows the Windows key (Start menu, Win+R, Win+Tab, ...) and the
+/// window-switching shortcuts (Alt+Tab, Alt+Esc, Ctrl+Esc, Ctrl+Shift+Esc).
+/// Ctrl+Alt+Del and Win+L cannot be intercepted by any application.
 /// </summary>
 internal sealed class KeyboardGuard : IDisposable
 {
     private readonly Native.LowLevelKeyboardProc _proc; // kept in a field so the GC cannot collect the callback
-    private readonly bool _blockWinKey;
-    private IntPtr _hook;
+    private readonly bool _allowSnapping;
+    private readonly HookThread _thread;
+    private bool _winHeld;
     private bool _altTabbing;
 
-    /// <summary>Raised on each swallowed Alt+Tab; the argument is true when Shift is held.</summary>
+    /// <summary>Raised on the hook thread for each swallowed Alt+Tab; the argument is true when Shift is held.</summary>
     public event Action<bool>? AltTab;
 
-    /// <summary>Raised when Alt is released after one or more Alt+Tab presses.</summary>
+    /// <summary>Raised on the hook thread when Alt is released after one or more Alt+Tab presses.</summary>
     public event Action? AltTabEnded;
 
-    public KeyboardGuard(bool blockWinKey)
+    /// <param name="allowSnapping">Let Win+arrow keys through so windows can still be snapped side by side.</param>
+    public KeyboardGuard(bool allowSnapping)
     {
-        _blockWinKey = blockWinKey;
+        _allowSnapping = allowSnapping;
         _proc = OnKey;
-        _hook = Native.SetWindowsHookEx(Native.WhKeyboardLl, _proc, Native.GetModuleHandle(null), 0);
+        _thread = new HookThread("Keyboard guard",
+            () => Native.SetWindowsHookEx(Native.WhKeyboardLl, _proc, Native.GetModuleHandle(null), 0));
     }
 
     private IntPtr OnKey(int code, IntPtr wParam, IntPtr lParam)
@@ -42,6 +45,19 @@ internal sealed class KeyboardGuard : IDisposable
 
     private bool Handle(int vk, bool down)
     {
+        if (vk is Native.VkLWin or Native.VkRWin)
+        {
+            _winHeld = down;
+            return true;
+        }
+
+        // The real Win key never reaches Windows, so snapping is replayed with an injected one.
+        if (_winHeld && _allowSnapping && vk is >= Native.VkLeft and <= Native.VkDown)
+        {
+            if (down) Native.SendWinArrow(vk);
+            return true;
+        }
+
         if (vk is Native.VkLMenu or Native.VkRMenu && !down && _altTabbing)
         {
             _altTabbing = false;
@@ -49,18 +65,15 @@ internal sealed class KeyboardGuard : IDisposable
             return false;
         }
 
-        if (_blockWinKey && vk is Native.VkLWin or Native.VkRWin) return true;
-
         var alt = Native.IsKeyDown(Native.VkLMenu) || Native.IsKeyDown(Native.VkRMenu);
-        var win = Native.IsKeyDown(Native.VkLWin) || Native.IsKeyDown(Native.VkRWin);
         var ctrl = Native.IsKeyDown(Native.VkControl);
-        var blocked = vk == Native.VkTab ? alt || win : vk == Native.VkEscape && (alt || win || ctrl);
+        var blocked = vk == Native.VkTab ? alt : vk == Native.VkEscape && (alt || ctrl);
         if (!blocked) return false;
 
         if (down)
         {
             Native.TapDummyKey();
-            if (vk == Native.VkTab && alt && !win)
+            if (vk == Native.VkTab)
             {
                 _altTabbing = true;
                 AltTab?.Invoke(Native.IsKeyDown(Native.VkShift));
@@ -69,10 +82,5 @@ internal sealed class KeyboardGuard : IDisposable
         return true;
     }
 
-    public void Dispose()
-    {
-        if (_hook == IntPtr.Zero) return;
-        Native.UnhookWindowsHookEx(_hook);
-        _hook = IntPtr.Zero;
-    }
+    public void Dispose() => _thread.Dispose();
 }

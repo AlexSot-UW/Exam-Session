@@ -33,6 +33,7 @@ public partial class FocusWindow : Window
     private IntPtr _hook;
     private IntPtr _hwnd;
     private KeyboardGuard? _keys;
+    private TaskbarGuard? _taskbar;
     private List<IntPtr> _switchList = new();
     private int _switchIndex;
     private WindowState _restoreState = WindowState.Maximized;
@@ -79,9 +80,12 @@ public partial class FocusWindow : Window
         _hwnd = new WindowInteropHelper(this).Handle;
         _hook = Native.SetWinEventHook(Native.EventSystemForeground, Native.EventSystemForeground, IntPtr.Zero,
             _hookProc, 0, 0, Native.WinEventOutOfContext);
-        _keys = new KeyboardGuard(blockWinKey: false);
+        _keys = new KeyboardGuard(allowSnapping: true);
         _keys.AltTab += reverse => Dispatcher.BeginInvoke(() => SwitchWindow(reverse));
-        _keys.AltTabEnded += () => _switchList.Clear();
+        _keys.AltTabEnded += () => Dispatcher.BeginInvoke(() => _switchList.Clear());
+        _taskbar = new TaskbarGuard();
+        _taskbar.Blocked += () => Dispatcher.BeginInvoke(() =>
+            ShowBanner("The taskbar is disabled during focus sessions. Use Alt+Tab to switch to allowed apps.", 5));
 
         _start = DateTime.Now;
         Tick();
@@ -237,6 +241,8 @@ public partial class FocusWindow : Window
     {
         _keys?.Dispose();
         _keys = null;
+        _taskbar?.Dispose();
+        _taskbar = null;
         if (_hook == IntPtr.Zero) return;
         Native.UnhookWinEvent(_hook);
         _hook = IntPtr.Zero;

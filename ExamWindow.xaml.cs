@@ -44,7 +44,7 @@ public partial class ExamWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        _keys = new KeyboardGuard(blockWinKey: true);
+        _keys = new KeyboardGuard(allowSnapping: false);
 
         var dataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ExamSession", "WebView2");
