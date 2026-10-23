@@ -32,6 +32,9 @@ public partial class FocusWindow : Window
 
     private IntPtr _hook;
     private IntPtr _hwnd;
+    private KeyboardGuard? _keys;
+    private List<IntPtr> _switchList = new();
+    private int _switchIndex;
     private WindowState _restoreState = WindowState.Maximized;
     private DateTime _start;
     private bool _allowClose;
@@ -76,6 +79,9 @@ public partial class FocusWindow : Window
         _hwnd = new WindowInteropHelper(this).Handle;
         _hook = Native.SetWinEventHook(Native.EventSystemForeground, Native.EventSystemForeground, IntPtr.Zero,
             _hookProc, 0, 0, Native.WinEventOutOfContext);
+        _keys = new KeyboardGuard(blockWinKey: false);
+        _keys.AltTab += reverse => Dispatcher.BeginInvoke(() => SwitchWindow(reverse));
+        _keys.AltTabEnded += () => _switchList.Clear();
 
         _start = DateTime.Now;
         Tick();
@@ -205,8 +211,32 @@ public partial class FocusWindow : Window
         if (_blocked > 0) BlockedText.Text = $"Blocked {_blocked}x ({(int)_timeAway.TotalSeconds}s away)";
     }
 
+    // Stand-in for Windows' Alt+Tab, cycling only through this window and the allowed apps.
+    private void SwitchWindow(bool reverse)
+    {
+        if (_finished) return;
+        if (_switchList.Count == 0)
+        {
+            var allowed = Native.AppWindows()
+                .Where(w => w.Hwnd == _hwnd || _allowed.Contains(w.Process))
+                .Select(w => w.Hwnd)
+                .ToList();
+            if (!allowed.Contains(_hwnd)) allowed.Insert(0, _hwnd);
+            _switchList = allowed;
+            _switchIndex = Math.Max(0, _switchList.IndexOf(Native.GetForegroundWindow()));
+        }
+        if (_switchList.Count < 2) return;
+
+        _switchIndex = (_switchIndex + (reverse ? -1 : 1) + _switchList.Count) % _switchList.Count;
+        var target = _switchList[_switchIndex];
+        if (target == _hwnd && WindowState == WindowState.Minimized) WindowState = _restoreState;
+        Native.SwitchTo(target);
+    }
+
     private void Unhook()
     {
+        _keys?.Dispose();
+        _keys = null;
         if (_hook == IntPtr.Zero) return;
         Native.UnhookWinEvent(_hook);
         _hook = IntPtr.Zero;

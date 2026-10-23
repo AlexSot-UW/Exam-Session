@@ -17,6 +17,7 @@ public partial class ExamWindow : Window
     private readonly DispatcherTimer _clock = new() { Interval = TimeSpan.FromMilliseconds(250) };
     private readonly DispatcherTimer _bannerTimer = new();
 
+    private KeyboardGuard? _keys;
     private DateTime _start;
     private bool _allowClose;
     private bool _finished;
@@ -43,6 +44,8 @@ public partial class ExamWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        _keys = new KeyboardGuard(blockWinKey: true);
+
         var dataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ExamSession", "WebView2");
         var env = await CoreWebView2Environment.CreateAsync(null, dataDir);
@@ -192,6 +195,8 @@ public partial class ExamWindow : Window
         if (_finished) return;
         _finished = true;
         _clock.Stop();
+        _keys?.Dispose();
+        _keys = null;
         if (_lostAt is { } lostAt)
         {
             _timeAway += DateTime.Now - lostAt;
