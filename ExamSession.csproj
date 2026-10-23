@@ -22,6 +22,8 @@
   <ItemGroup>
     <Compile Remove="Exams\**" />
     <None Remove="Exams\**" />
+    <Compile Remove="Assignments\**" />
+    <None Remove="Assignments\**" />
   </ItemGroup>
 
 </Project>
