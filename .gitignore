@@ -1,0 +1,16 @@
+# Build output
+bin/
+obj/
+dist/
+publish/
+
+# Executable and binary artifacts
+*.exe
+*.dll
+*.pdb
+
+# IDE / user-specific
+.vs/
+.vscode/
+*.user
+*.suo

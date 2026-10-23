@@ -1,0 +1,60 @@
+<Window x:Class="ExamSession.ExamWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="Exam in progress"
+        WindowStyle="None" ResizeMode="NoResize" WindowState="Maximized" Topmost="True"
+        Background="#1E1E1E" Foreground="#EEEEEE" FontSize="15"
+        Loaded="OnLoaded" Closing="OnClosing" Activated="OnActivated"
+        Deactivated="OnDeactivated" StateChanged="OnStateChanged">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition />
+        </Grid.RowDefinitions>
+
+        <!-- Top bar -->
+        <DockPanel Background="#252526" LastChildFill="False">
+            <TextBlock x:Name="TitleText" DockPanel.Dock="Left" Margin="16,10"
+                       FontWeight="SemiBold" VerticalAlignment="Center" />
+            <Button x:Name="EndButton" DockPanel.Dock="Right" Content="End exam" Margin="8,8,16,8"
+                    Click="OnEndClicked" Focusable="False" />
+            <TextBlock x:Name="TimerText" DockPanel.Dock="Right" Margin="16,0" FontSize="24"
+                       FontFamily="Consolas" VerticalAlignment="Center" />
+            <TextBlock x:Name="PhaseText" DockPanel.Dock="Right" Margin="16,0"
+                       Foreground="#AAAAAA" VerticalAlignment="Center" />
+            <TextBlock x:Name="AwayText" DockPanel.Dock="Right" Margin="16,0"
+                       Foreground="#F48771" VerticalAlignment="Center" />
+        </DockPanel>
+
+        <Border x:Name="Banner" Grid.Row="1" Background="#B58900" Padding="16,8" Visibility="Collapsed">
+            <TextBlock x:Name="BannerText" Foreground="Black" FontWeight="SemiBold" />
+        </Border>
+
+        <wv2:WebView2 x:Name="Viewer" Grid.Row="2" />
+
+        <!-- WebView2 is a native HWND and always draws on top, so it is hidden whenever an overlay is shown. -->
+        <Grid x:Name="EndPanel" Grid.Row="2" Visibility="Collapsed">
+            <StackPanel Width="420" VerticalAlignment="Center">
+                <TextBlock Text="End the exam early?" FontSize="22" FontWeight="SemiBold" />
+                <TextBlock x:Name="EndPrompt" Margin="0,8,0,12" TextWrapping="Wrap" Foreground="#BBBBBB" />
+                <PasswordBox x:Name="EndInput" Padding="6" FontSize="16" />
+                <TextBlock x:Name="EndError" Foreground="#F48771" Margin="0,6,0,0" Visibility="Collapsed" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+                    <Button Content="Back to exam" Click="OnEndCancel" IsCancel="True" />
+                    <Button Content="End exam" Click="OnEndConfirm" IsDefault="True" Margin="0" />
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+
+        <Grid x:Name="DonePanel" Grid.Row="2" Visibility="Collapsed">
+            <StackPanel Width="520" VerticalAlignment="Center">
+                <TextBlock x:Name="DoneTitle" FontSize="28" FontWeight="SemiBold" />
+                <TextBlock x:Name="DoneDetails" Margin="0,12,0,20" TextWrapping="Wrap"
+                           Foreground="#BBBBBB" FontFamily="Consolas" />
+                <Button Content="Close" Click="OnDoneClicked" HorizontalAlignment="Left" Margin="0" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

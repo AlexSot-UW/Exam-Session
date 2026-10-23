@@ -1,0 +1,59 @@
+<Window x:Class="ExamSession.SetupWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Exam Session" Width="580" Height="560"
+        WindowStartupLocation="CenterScreen"
+        Background="#1E1E1E" Foreground="#EEEEEE" FontSize="14">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Text="Mock exam" FontSize="24" FontWeight="SemiBold" />
+        <TextBlock x:Name="ExamsDirText" Grid.Row="1" Margin="0,4,0,10"
+                   Foreground="#999999" FontSize="12" TextTrimming="CharacterEllipsis" />
+
+        <ListBox x:Name="ExamList" Grid.Row="2" DisplayMemberPath="Name"
+                 Background="#252526" Foreground="#EEEEEE" BorderBrush="#3C3C3C"
+                 MouseDoubleClick="OnStartClicked" />
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,16">
+            <Button Content="Refresh" Click="OnRefreshClicked" />
+            <Button Content="Browse..." Click="OnBrowseClicked" />
+            <Button Content="Open exams folder" Click="OnOpenFolderClicked" />
+        </StackPanel>
+
+        <Grid Grid.Row="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220" />
+                <ColumnDefinition />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <TextBlock Text="Writing time (minutes)" VerticalAlignment="Center" />
+            <TextBox x:Name="WritingBox" Grid.Column="1" Text="120" Margin="0,4" Padding="4" />
+
+            <TextBlock Grid.Row="1" Text="Reading time (minutes)" VerticalAlignment="Center" />
+            <TextBox x:Name="ReadingBox" Grid.Row="1" Grid.Column="1" Text="0" Margin="0,4" Padding="4" />
+
+            <TextBlock Grid.Row="2" Text="Exit password (optional)" VerticalAlignment="Center" />
+            <PasswordBox x:Name="PasswordBox" Grid.Row="2" Grid.Column="1" Margin="0,4" Padding="4" />
+        </Grid>
+
+        <TextBlock x:Name="ErrorText" Grid.Row="5" Foreground="#F48771" Margin="0,8,0,0"
+                   TextWrapping="Wrap" Visibility="Collapsed" />
+
+        <Button Grid.Row="6" Content="Start exam" Click="OnStartClicked" HorizontalAlignment="Right"
+                Margin="0,16,0,0" Padding="24,8" FontWeight="SemiBold" IsDefault="True" />
+    </Grid>
+</Window>
