@@ -11,6 +11,7 @@ internal sealed class KeyboardGuard : IDisposable
 {
     private readonly Native.LowLevelKeyboardProc _proc; // kept in a field so the GC cannot collect the callback
     private readonly bool _allowSnapping;
+    private readonly bool _allowScreenshots;
     private readonly HookThread _thread;
     private bool _winHeld;
     private bool _altTabbing;
@@ -22,9 +23,11 @@ internal sealed class KeyboardGuard : IDisposable
     public event Action? AltTabEnded;
 
     /// <param name="allowSnapping">Let Win+arrow keys through so windows can still be snapped side by side.</param>
-    public KeyboardGuard(bool allowSnapping)
+    /// <param name="allowScreenshots">Let Win+Shift+S and Win+PrtSc through.</param>
+    public KeyboardGuard(bool allowSnapping, bool allowScreenshots)
     {
         _allowSnapping = allowSnapping;
+        _allowScreenshots = allowScreenshots;
         _proc = OnKey;
         _thread = new HookThread("Keyboard guard",
             () => Native.SetWindowsHookEx(Native.WhKeyboardLl, _proc, Native.GetModuleHandle(null), 0));
@@ -51,10 +54,13 @@ internal sealed class KeyboardGuard : IDisposable
             return true;
         }
 
-        // The real Win key never reaches Windows, so snapping is replayed with an injected one.
-        if (_winHeld && _allowSnapping && vk is >= Native.VkLeft and <= Native.VkDown)
+        // The real Win key never reaches Windows, so permitted Win shortcuts are replayed with an injected one.
+        var replay = _winHeld && (
+            _allowSnapping && vk is >= Native.VkLeft and <= Native.VkDown ||
+            _allowScreenshots && (vk == Native.VkSnapshot || vk == Native.VkS && Native.IsKeyDown(Native.VkShift)));
+        if (replay)
         {
-            if (down) Native.SendWinArrow(vk);
+            if (down) Native.SendWinChord(vk);
             return true;
         }
 

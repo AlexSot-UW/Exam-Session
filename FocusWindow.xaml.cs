@@ -21,6 +21,12 @@ public partial class FocusWindow : Window
         "MultitaskingViewFrame", "XamlExplorerHostIslandWindow", "ForegroundStaging", "Progman", "WorkerW",
     };
 
+    // The Win+Shift+S / PrtSc snipping overlay and the Snipping Tool editor (old and new versions).
+    private static readonly HashSet<string> ScreenshotApps = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "SnippingTool", "ScreenClippingHost", "ScreenSketch",
+    };
+
     private readonly FocusConfig _config;
     private readonly string _pdfUri;
     private readonly HashSet<string> _allowed;
@@ -56,6 +62,7 @@ public partial class FocusWindow : Window
             Process.GetCurrentProcess().ProcessName,
             "LockApp",
         };
+        _allowed.UnionWith(ScreenshotApps);
         TitleText.Text = config.Name;
         AllowedText.Text = config.AllowedApps.Count == 0
             ? "Allowed: this PDF only"
@@ -80,7 +87,7 @@ public partial class FocusWindow : Window
         _hwnd = new WindowInteropHelper(this).Handle;
         _hook = Native.SetWinEventHook(Native.EventSystemForeground, Native.EventSystemForeground, IntPtr.Zero,
             _hookProc, 0, 0, Native.WinEventOutOfContext);
-        _keys = new KeyboardGuard(allowSnapping: true);
+        _keys = new KeyboardGuard(allowSnapping: true, allowScreenshots: true);
         _keys.AltTab += reverse => Dispatcher.BeginInvoke(() => SwitchWindow(reverse));
         _keys.AltTabEnded += () => Dispatcher.BeginInvoke(() => _switchList.Clear());
         _taskbar = new TaskbarGuard();
@@ -168,6 +175,9 @@ public partial class FocusWindow : Window
     private void OnForegroundChanged(IntPtr hook, uint evt, IntPtr hwnd, int idObject, int idChild, uint thread, uint time)
     {
         if (_finished) return;
+        // Let a snip reach the bottom of the screen.
+        if (_taskbar is not null)
+            _taskbar.Paused = hwnd != IntPtr.Zero && Native.ProcessName(hwnd) is { } name && ScreenshotApps.Contains(name);
         if (IsAllowed(hwnd))
         {
             _graceTimer.Stop();

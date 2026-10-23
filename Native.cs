@@ -83,6 +83,8 @@ internal static class Native
     public const int VkShift = 0x10;
     public const int VkControl = 0x11;
     public const int VkEscape = 0x1B;
+    public const int VkSnapshot = 0x2C;
+    public const int VkS = 0x53;
     public const int VkLeft = 0x25;
     public const int VkDown = 0x28;
     public const int VkLWin = 0x5B;
@@ -295,12 +297,13 @@ internal static class Native
         keybd_event(VkDummy, 0, KeyEventUp, InjectedMarker);
     }
 
-    /// <summary>Replays Win+arrow (window snapping) after the real Win key was swallowed.</summary>
-    public static void SendWinArrow(int arrow)
+    /// <summary>Replays a Win+key shortcut after the real Win key was swallowed.</summary>
+    public static void SendWinChord(int vk)
     {
+        var keyFlags = vk is >= VkLeft and <= VkDown ? KeyEventExtended : 0;
         keybd_event(VkLWin, 0, KeyEventExtended, InjectedMarker);
-        keybd_event((byte)arrow, 0, KeyEventExtended, InjectedMarker);
-        keybd_event((byte)arrow, 0, KeyEventExtended | KeyEventUp, InjectedMarker);
+        keybd_event((byte)vk, 0, keyFlags, InjectedMarker);
+        keybd_event((byte)vk, 0, keyFlags | KeyEventUp, InjectedMarker);
         keybd_event(VkLWin, 0, KeyEventExtended | KeyEventUp, InjectedMarker);
     }
 

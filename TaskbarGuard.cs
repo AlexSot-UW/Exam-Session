@@ -24,6 +24,14 @@ internal sealed class TaskbarGuard : IDisposable
     private readonly List<IntPtr> _taskbars = Native.Taskbars();
     private readonly HookThread _thread;
     private DateTime _lastNotice;
+    private volatile bool _paused;
+
+    /// <summary>While paused the cursor may enter the taskbar, e.g. to snip a screenshot that includes it.</summary>
+    public bool Paused
+    {
+        get => _paused;
+        set => _paused = value;
+    }
 
     /// <summary>Raised on the hook thread (at most every few seconds) when the cursor was stopped at the taskbar.</summary>
     public event Action? Blocked;
@@ -50,7 +58,7 @@ internal sealed class TaskbarGuard : IDisposable
 
     private void PushCursorOut()
     {
-        if (!Native.GetCursorPos(out var pos)) return;
+        if (_paused || !Native.GetCursorPos(out var pos)) return;
         var taskbar = TaskbarAt(pos);
         if (taskbar == IntPtr.Zero || !Native.GetWindowRect(taskbar, out var bar)) return;
 
@@ -74,7 +82,7 @@ internal sealed class TaskbarGuard : IDisposable
     private IntPtr OnMouse(int code, IntPtr wParam, IntPtr lParam)
     {
         var msg = (int)wParam;
-        if (code >= 0 && msg is >= WmMouseMove and <= WmMouseLastButton)
+        if (code >= 0 && !_paused && msg is >= WmMouseMove and <= WmMouseLastButton)
         {
             var mouse = Marshal.PtrToStructure<Native.MsLlHookStruct>(lParam);
             var blocked = msg == WmMouseMove
