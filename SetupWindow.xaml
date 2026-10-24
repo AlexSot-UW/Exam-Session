@@ -78,7 +78,8 @@
                 <TextBlock x:Name="AssignmentsDirText" Margin="0,0,0,10"
                            Foreground="#999999" FontSize="12" TextTrimming="CharacterEllipsis" />
 
-                <ListBox x:Name="AssignmentList" Grid.Row="1" DisplayMemberPath="Name"
+                <ListBox x:Name="AssignmentList" Grid.Row="1" DisplayMemberPath="Name" SelectionMode="Extended"
+                         ToolTip="Ctrl+click or Shift+click to pick several PDFs; switch between them during the session."
                          Background="#252526" Foreground="#EEEEEE" BorderBrush="#3C3C3C" />
 
                 <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,16">

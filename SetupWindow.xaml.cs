@@ -64,14 +64,21 @@ public partial class SetupWindow : Window
 
     private void BrowsePdf(string dir, List<FileInfo> files, ListBox list)
     {
-        var dialog = new OpenFileDialog { Filter = "PDF files (*.pdf)|*.pdf", InitialDirectory = dir };
+        var multi = list.SelectionMode != SelectionMode.Single;
+        var dialog = new OpenFileDialog { Filter = "PDF files (*.pdf)|*.pdf", InitialDirectory = dir, Multiselect = multi };
         if (dialog.ShowDialog(this) != true) return;
 
-        var file = new FileInfo(dialog.FileName);
-        files.Add(file);
+        var added = dialog.FileNames.Select(f => new FileInfo(f)).ToList();
+        files.AddRange(added);
         list.ItemsSource = null;
         list.ItemsSource = files;
-        list.SelectedItem = file;
+        if (!multi)
+        {
+            list.SelectedItem = added[0];
+            return;
+        }
+        list.SelectedItems.Clear();
+        foreach (var file in added) list.SelectedItems.Add(file);
     }
 
     private static void OpenFolder(string dir) =>
@@ -197,9 +204,11 @@ public partial class SetupWindow : Window
 
     private void OnStartFocusClicked(object sender, RoutedEventArgs e)
     {
-        if (AssignmentList.SelectedItem is not FileInfo pdf)
+        // Keep the list order rather than click order, so the session tabs match the setup list.
+        var pdfs = _assignments.Where(AssignmentList.SelectedItems.Contains).Select(f => f.FullName).ToList();
+        if (pdfs.Count == 0)
         {
-            ShowError(FocusErrorText, "Pick an assignment PDF first.");
+            ShowError(FocusErrorText, "Pick at least one assignment PDF first.");
             return;
         }
         if (!int.TryParse(DurationBox.Text, out var duration) || duration < 0)
@@ -213,7 +222,7 @@ public partial class SetupWindow : Window
         SaveApps(allowed);
         var password = string.IsNullOrEmpty(FocusPasswordBox.Password) ? null : FocusPasswordBox.Password;
         var logPath = Path.Combine(Directory.GetParent(_examsDir)!.FullName, "focus-log.csv");
-        var config = new FocusConfig(pdf.FullName, TimeSpan.FromMinutes(duration), allowed, password, logPath);
+        var config = new FocusConfig(pdfs,TimeSpan.FromMinutes(duration), allowed, password, logPath);
 
         LaunchSession(new FocusWindow(config));
     }

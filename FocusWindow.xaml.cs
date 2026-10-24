@@ -3,10 +3,13 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.Wpf;
 
 namespace ExamSession;
 
@@ -28,7 +31,9 @@ public partial class FocusWindow : Window
     };
 
     private readonly FocusConfig _config;
-    private readonly string _pdfUri;
+    private readonly string[] _pdfUris;
+    private readonly WebView2?[] _viewers;
+    private readonly List<Button> _tabs = new();
     private readonly HashSet<string> _allowed;
     private readonly DispatcherTimer _clock = new() { Interval = TimeSpan.FromMilliseconds(250) };
     private readonly DispatcherTimer _bannerTimer = new();
@@ -40,9 +45,10 @@ public partial class FocusWindow : Window
     private IntPtr _hwnd;
     private KeyboardGuard? _keys;
     private TaskbarGuard? _taskbar;
+    private Task<CoreWebView2Environment>? _webEnv;
+    private int _current;
     private List<IntPtr> _switchList = new();
     private int _switchIndex;
-    private WindowState _restoreState = WindowState.Maximized;
     private DateTime _start;
     private bool _allowClose;
     private bool _finished;
@@ -56,17 +62,32 @@ public partial class FocusWindow : Window
     {
         InitializeComponent();
         _config = config;
-        _pdfUri = new Uri(config.PdfPath).AbsoluteUri;
+        _pdfUris = config.PdfPaths.Select(p => new Uri(p).AbsoluteUri).ToArray();
+        _viewers = new WebView2?[_pdfUris.Length];
         _allowed = new HashSet<string>(config.AllowedApps, StringComparer.OrdinalIgnoreCase)
         {
             Process.GetCurrentProcess().ProcessName,
             "LockApp",
         };
         _allowed.UnionWith(ScreenshotApps);
-        TitleText.Text = config.Name;
+        TitleText.Text = config.Names[0];
         AllowedText.Text = config.AllowedApps.Count == 0
-            ? "Allowed: this PDF only"
+            ? (_pdfUris.Length == 1 ? "Allowed: this PDF only" : "Allowed: these PDFs only")
             : "Allowed: " + string.Join(", ", config.AllowedApps);
+
+        for (var i = 0; i < _pdfUris.Length; i++)
+        {
+            var index = i;
+            var tab = new Button
+            {
+                Content = config.Names[i], Margin = new Thickness(8, 4, 0, 4), Padding = new Thickness(12, 4, 12, 4),
+                Focusable = false, ToolTip = config.PdfPaths[i],
+            };
+            tab.Click += (_, _) => ShowPdf(index);
+            _tabs.Add(tab);
+            PdfTabs.Children.Add(tab);
+        }
+        if (_pdfUris.Length > 1) PdfTabs.Visibility = Visibility.Visible;
 
         _hookProc = OnForegroundChanged;
         _clock.Tick += (_, _) => Tick();
@@ -82,9 +103,10 @@ public partial class FocusWindow : Window
         };
     }
 
-    private async void OnLoaded(object sender, RoutedEventArgs e)
+    private void OnLoaded(object sender, RoutedEventArgs e)
     {
         _hwnd = new WindowInteropHelper(this).Handle;
+        HwndSource.FromHwnd(_hwnd).AddHook(BlockWindowCommands);
         _hook = Native.SetWinEventHook(Native.EventSystemForeground, Native.EventSystemForeground, IntPtr.Zero,
             _hookProc, 0, 0, Native.WinEventOutOfContext);
         _keys = new KeyboardGuard(allowSnapping: true, allowScreenshots: true);
@@ -98,24 +120,70 @@ public partial class FocusWindow : Window
         Tick();
         _clock.Start();
 
-        var dataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ExamSession", "WebView2");
-        var env = await CoreWebView2Environment.CreateAsync(null, dataDir);
-        await Viewer.EnsureCoreWebView2Async(env);
+        ShowPdf(0);
+    }
 
-        var core = Viewer.CoreWebView2;
+    // --- PDF viewers --------------------------------------------------------
+
+    private void ShowPdf(int index)
+    {
+        if (_finished) return;
+        _current = index;
+        _viewers[index] ??= CreateViewer(_pdfUris[index]);
+        for (var i = 0; i < _viewers.Length; i++)
+        {
+            if (_viewers[i] is { } viewer) viewer.Visibility = i == index ? Visibility.Visible : Visibility.Hidden;
+            _tabs[i].FontWeight = i == index ? FontWeights.SemiBold : FontWeights.Normal;
+            _tabs[i].Background = i == index ? new SolidColorBrush(Color.FromRgb(0x9C, 0xDC, 0xFE)) : null;
+        }
+        TitleText.Text = _config.Names[index];
+        if (Viewers.Visibility == Visibility.Visible) _viewers[index]!.Focus();
+    }
+
+    private WebView2 CreateViewer(string pdfUri)
+    {
+        var viewer = new WebView2();
+        Viewers.Children.Add(viewer);
+        _ = InitViewer(viewer, pdfUri);
+        return viewer;
+    }
+
+    private async Task InitViewer(WebView2 viewer, string pdfUri)
+    {
+        _webEnv ??= CoreWebView2Environment.CreateAsync(null, Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ExamSession", "WebView2"));
+        await viewer.EnsureCoreWebView2Async(await _webEnv);
+
+        var core = viewer.CoreWebView2;
         core.Settings.AreDefaultContextMenusEnabled = false;
         core.Settings.AreDevToolsEnabled = false;
         core.Settings.IsStatusBarEnabled = false;
-        // Keep the viewer pinned to the assignment PDF: no links, popups or downloads.
+        // Keep each viewer pinned to its assignment PDF: no links, popups or downloads.
         core.NewWindowRequested += (_, args) => args.Handled = true;
         core.DownloadStarting += (_, args) => args.Cancel = true;
         core.NavigationStarting += (_, args) =>
         {
             var target = args.Uri.Split('#')[0];
-            if (!string.Equals(target, _pdfUri, StringComparison.OrdinalIgnoreCase)) args.Cancel = true;
+            if (!string.Equals(target, pdfUri, StringComparison.OrdinalIgnoreCase)) args.Cancel = true;
         };
-        core.Navigate(_pdfUri);
+        core.Navigate(pdfUri);
+    }
+
+    // Ctrl+Tab / Ctrl+PageDown and their reverses cycle the PDFs. WebView2 forwards these as accelerator keys.
+    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (_pdfUris.Length < 2 || _finished || Viewers.Visibility != Visibility.Visible) return;
+        if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
+
+        var shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+        int step;
+        if (e.Key == Key.Tab) step = shift ? -1 : 1;
+        else if (e.Key == Key.PageDown) step = 1;
+        else if (e.Key == Key.PageUp) step = -1;
+        else return;
+
+        e.Handled = true;
+        ShowPdf((_current + step + _pdfUris.Length) % _pdfUris.Length);
     }
 
     private void Tick()
@@ -211,7 +279,7 @@ public partial class FocusWindow : Window
         }
 
         Native.ShowWindow(hwnd, Native.SwMinimize);
-        if (WindowState == WindowState.Minimized) WindowState = _restoreState;
+        if (WindowState != WindowState.Maximized) WindowState = WindowState.Maximized;
         Native.ForceForeground(_hwnd);
         ShowBanner($"{name} is not allowed during this session. Blocked {_blocked} time(s).", 6);
     }
@@ -243,7 +311,7 @@ public partial class FocusWindow : Window
 
         _switchIndex = (_switchIndex + (reverse ? -1 : 1) + _switchList.Count) % _switchList.Count;
         var target = _switchList[_switchIndex];
-        if (target == _hwnd && WindowState == WindowState.Minimized) WindowState = _restoreState;
+        if (target == _hwnd && WindowState != WindowState.Maximized) WindowState = WindowState.Maximized;
         Native.SwitchTo(target);
     }
 
@@ -258,9 +326,22 @@ public partial class FocusWindow : Window
         _hook = IntPtr.Zero;
     }
 
+    // Refuses move, resize, minimize and restore however they are requested (Alt+Space menu, Win+arrows, ...).
+    private IntPtr BlockWindowCommands(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        const int WmSysCommand = 0x0112;
+        const int ScSize = 0xF000, ScMove = 0xF010, ScMinimize = 0xF020, ScRestore = 0xF120;
+        if (msg != WmSysCommand || _finished) return IntPtr.Zero;
+
+        var command = wParam.ToInt32() & 0xFFF0; // low 4 bits are used internally by Windows
+        if (command is ScSize or ScMove or ScMinimize or ScRestore) handled = true;
+        return IntPtr.Zero;
+    }
+
     private void OnStateChanged(object? sender, EventArgs e)
     {
-        if (WindowState != WindowState.Minimized) _restoreState = WindowState;
+        // The window stays fullscreen for the whole session: no minimizing, restoring or snapping.
+        if (!_finished && WindowState != WindowState.Maximized) WindowState = WindowState.Maximized;
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
@@ -283,7 +364,7 @@ public partial class FocusWindow : Window
             : "Enter your exit password. The session will be logged as ended early.";
         EndInput.Clear();
         EndError.Visibility = Visibility.Collapsed;
-        Viewer.Visibility = Visibility.Hidden;
+        Viewers.Visibility = Visibility.Hidden;
         EndPanel.Visibility = Visibility.Visible;
         EndInput.Focus();
     }
@@ -291,7 +372,8 @@ public partial class FocusWindow : Window
     private void OnEndCancel(object sender, RoutedEventArgs e)
     {
         EndPanel.Visibility = Visibility.Collapsed;
-        Viewer.Visibility = Visibility.Visible;
+        Viewers.Visibility = Visibility.Visible;
+        _viewers[_current]?.Focus();
     }
 
     private void OnEndConfirm(object sender, RoutedEventArgs e)
@@ -322,14 +404,15 @@ public partial class FocusWindow : Window
 
         EndPanel.Visibility = Visibility.Collapsed;
         Banner.Visibility = Visibility.Collapsed;
-        Viewer.Visibility = Visibility.Hidden;
+        Viewers.Visibility = Visibility.Hidden;
         EndButton.IsEnabled = false;
-        if (WindowState == WindowState.Minimized) WindowState = _restoreState;
+        PdfTabs.IsEnabled = false;
+        if (WindowState != WindowState.Maximized) WindowState = WindowState.Maximized;
         Activate();
 
         DoneTitle.Text = outcome == "completed" ? "Focus session complete." : "Focus session ended early.";
         DoneDetails.Text =
-            $"Assignment:    {_config.Name}\n" +
+            $"{(_pdfUris.Length == 1 ? "Assignment:  " : "Assignments: ")}  {_config.Name}\n" +
             $"Planned:       {(_config.HasLimit ? Format(_config.Duration) : "no limit")}\n" +
             $"Actual:        {Format(elapsed)}\n" +
             $"Allowed apps:  {(_config.AllowedApps.Count == 0 ? "none" : string.Join(", ", _config.AllowedApps))}\n" +
